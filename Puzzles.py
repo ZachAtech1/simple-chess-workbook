@@ -13,7 +13,7 @@ import sys
 # 0) check for latest CSV
 ensure_latest_csv()
 
-# register Apple Symbols font (present on all macOS systems) for chess glyphs
+# register apple font
 apple_symbols_paths = [
     Path("/System/Library/Fonts/Apple Symbols.ttf"),
     Path("/System/Library/Fonts/Supplemental/Apple Symbols.ttf")
@@ -27,44 +27,43 @@ else:
         "Apple Symbols font not found in system font directories."
     )
 
-# 1) open the compressed CSV (.bz2)
+# 1) read compressed csv
 csv_path = Path(__file__).parent / "lichess_db_puzzle.csv.bz2"
 stream = bz2.open(csv_path, "rt", newline="", encoding="utf-8")
 
-# define CSV column names as Lichess publishes (no header row)
+# define the collumn names (in the lichess download page)
 fieldnames = [
-    "id","fen","moves","rating","ratingDeviation",
-    "popularity","nbPlays","themes","gameUrl","openingTags"
+    "id","fen","moves","rating","ratingDeviation","popularity","nbPlays","themes","gameUrl","openingTags"
 ]
 reader = csv.DictReader(stream, fieldnames=fieldnames)
 
-#
-# Use reservoir sampling to select user number random puzzles near rating 1000
+# 2) Use reservoir sampling to select user number random puzzles near k rating
 
 k = int(input("How many puzzles do you want? "))
 while not k in range(1,100):
     if not k in range(1,100):
         print("Puzzle range is 1-100")
-        puzzle_number=int(input("How many puzzles do you want? "))
+        k=int(input("How many puzzles do you want? "))
         break
 
 print("Reading puzzles from database...")
 reservoir = []
 total = 0
-rating_search = int(input("What rating are you looking for? "))
+rating_range = int(input("What rating are you looking for? "))
 tolerance = 50
-while not rating_search in range(300, 3000):
-    if not rating_search in range(300, 300):
+while not rating_range in range(300, 3000):
+    if not rating_range in range(300, 300):
         print("Please enter a rating between 300 and 3000")
-        rating_search=int(input("What rating are you looking for "))
+        rating_range=int(input("What rating are you looking for "))
     else:
         break
-
-# Create a progress bar for the CSV reading process
+# 3) search for puzzles with rating in the range
+# create a progress bar for the CSV reading process
 with tqdm(desc="Scanning puzzles", unit="puzzle", ncols=80, file=sys.stdout) as pbar:
+    # start searching for puzzles
     for row in reader:
         try:
-            if abs(int(row["rating"]) - rating_search) <= tolerance:
+            if abs(int(row["rating"]) - rating_range) <= tolerance:
                 total += 1
                 sol = row["moves"].split()
                 item = (row["id"], row["fen"], sol)
@@ -86,20 +85,23 @@ print("\nGenerating PDF...")
 random.shuffle(reservoir)
 selected = reservoir
 
-#
-# 3) build PDF with 9 puzzles per page
+# 4) build PDF with max 9 puzzles per page
 timestr = time.strftime("%d-%H:%M:%S")
 pdf_filename = f"Puzzle_{timestr}.pdf"
 c = canvas.Canvas(pdf_filename, pagesize=letter)
 width, height = letter
 per_page = 9
-row_offsets = [1, 3, 5]  # row0:1in, row1:3in, row2:5in
+# row offsets for each row in inches
+row_offsets = [1, 3, 5]
 
-# Wrap the loop with tqdm for progress tracking
+'''
+5) Lichess provides puzzles where the FEN represents the position before the first move.
+    In order to fix this we need to apply the first move to the board and update the FEN.
+    This is done by using the chess library to create a board object from the FEN string,
+'''
+
 print("Starting PDF generation...")
 for idx, (pid, fen, sol) in enumerate(tqdm(selected, desc="Generating PDF", unit="puzzle", ncols=80, file=sys.stdout), start=1):
-    time.sleep(0.1)  # Add a 100ms delay to see the progress bar movement
-    # apply the first solution move to the FEN and update board
     board = chess.Board(fen)
     first_move = sol[0]
     board.push_san(first_move)
@@ -156,16 +158,18 @@ for idx, (pid, fen, sol) in enumerate(tqdm(selected, desc="Generating PDF", unit
     c.setFont("AppleSymbols", 10)
     c.drawString(x_origin, grid_origin_y - 10, side)
 
-    # Explicitly update and flush tqdm
+    # flush tqdm to force the progress bar to update
     tqdm.write("", end="", file=sys.stdout)
 
-# 4) answer page
+# 6) solution page
 c.showPage()
 c.setFont("AppleSymbols", 12)
 c.drawString(inch * 0.5, height - inch, "Solutions")
 c.setFont("AppleSymbols", 10)
 y = height - inch * 1.2
 
+# For the solution lichess gives in simple text (e1d2) we use the chess library
+# to convert the UCI move to SAN (e.g. e1d2 -> Kd2)
 for i, (pid, fen, sol) in enumerate(selected, start=1):
     # apply first move and update board for SAN conversion
     board = chess.Board(fen)
@@ -184,3 +188,4 @@ for i, (pid, fen, sol) in enumerate(selected, start=1):
         y = height - inch
 
 c.save()
+# thanks chatgpt for all your hardwork
