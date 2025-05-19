@@ -14,7 +14,7 @@ def ensure_latest_csv():
         return
 
     # 1) If we don't have a local copy, download it unconditionally.
-    if not LOCAL_PATH.exists():
+    if not VERSION.exists():
         download_csv()
         decompress_csv()
         convert_to_parquet()
@@ -25,18 +25,19 @@ def ensure_latest_csv():
     remote_mod = head.headers.get("Last-Modified")
 
     # parse the remote timestamp into a POSIX timestamp.
+    global remote_ts
     remote_ts = time.mktime(
         time.strptime(remote_mod, "%a, %d %b %Y %H:%M:%S %Z")
     )
 
     # get the local file's modification time
-    if VERSION.exists():
-        local_ts = VERSION.stat().st_mtime
-    else:
+    try:
+        with open(VERSION, "r") as f:
+            local_ts = (f.read())
+    except:
         local_ts = 0
-
     # if remote is newer, redownload
-    if remote_ts > local_ts:
+    if float(remote_ts) > float(local_ts):
         download_csv()
         decompress_csv()
         convert_to_parquet()
@@ -66,7 +67,7 @@ def download_csv():
     remote_mod = resp.headers.get("Last-Modified")
     if remote_mod:
         remote_ts = time.mktime(
-            time.strptime(remote_mod, "%a, %d %b %Y %H:%M:%S %Z")
+            (time.strptime(remote_mod, "%a, %d %b %Y %H:%M:%S %Z"))
         )
         os.utime(LOCAL_PATH, (remote_ts, remote_ts))
 
@@ -93,7 +94,9 @@ def convert_to_parquet():
     with open(decompressed_csv_path, "rt", encoding="utf-8") as f:
         next(f)  # skip header row
         for i, line in enumerate(f, 1):
-            parts = line.rstrip("\n").split(",", len(fieldnames) - 1)
+            # There are multiple commas in the openingTags field, so we need to split on the last for the parquet file
+            parts = line.rstrip("\n").split(",", len(fieldnames) - 1) 
+            # Check the openingTags field correctly parsed
             if len(parts) == len(fieldnames):
                 records.append(parts)
             
@@ -109,6 +112,6 @@ def convert_to_parquet():
     df.to_parquet(parquet_path)
     # Update version file
     with open(VERSION, "w") as f:
-        f.write(f"{time.strftime('%Y%m%d%H%M%S')}")
+        f.write(f"{remote_ts}")
     LOCAL_PATH.unlink()
     decompressed_csv_path.unlink()
