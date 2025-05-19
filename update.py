@@ -6,6 +6,13 @@ CSV_URL = "https://database.lichess.org/lichess_db_puzzle.csv.bz2"
 LOCAL_PATH = Path(__file__).parent / "lichess_db_puzzle.csv.bz2"
 
 def ensure_latest_csv():
+    # Check for internet connection
+    try:
+        requests.head("https://www.google.com", timeout=3)
+    except requests.RequestException:
+        print("No connection, continuing")
+        return
+
     # 1) If we don't have a local copy, download it unconditionally.
     if not LOCAL_PATH.exists():
         download_csv()
