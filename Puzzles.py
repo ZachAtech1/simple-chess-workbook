@@ -21,7 +21,7 @@ ensure_latest_csv()
 from reportlab.pdfbase.pdfmetrics import registerFontFamily
 registerFontFamily('Helvetica', normal='Helvetica', bold='Helvetica-Bold', italic='Helvetica-Oblique', boldItalic='Helvetica-BoldOblique')
 
-# Load parquet
+# Load parquetx
 parquet_path = Path(__file__).parent / "lichess_db_puzzle.parquet"
 stream=open(parquet_path, "rb")
 
@@ -224,3 +224,4 @@ for i, (pid, fen, sol) in enumerate(selected, start=1):
         y = height - inch
 
 c.save()
+# testing
