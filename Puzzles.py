@@ -41,7 +41,7 @@ total = 0
 
 # Ask user for input values
 rating_range = int(input("What rating are you looking for? (300 - 3000) ")) 
-themes = input("What themes are you looking for? (refer to list_of_openings.txt) ")
+themes = input("What themes are you looking for? (refer to list_of_themes.txt) ")
 openings = input("What openings are you looking for? (refer to list_of_openings.txt and separate by commas) ")
 starting_color = input("What starting color are you looking for? (b/w or empty for either) ")
 tolerance = 50
