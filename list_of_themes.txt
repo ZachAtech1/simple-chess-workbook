@@ -1,0 +1,34 @@
+[
+    # Basic concepts
+    'advantage', 'equality', 'opening', 'middlegame', 'endgame',
+    
+    # Game length
+    'short', 'long', 'veryLong', 'oneMove',
+    
+    # Mate patterns
+    'mate', 'mateIn1', 'mateIn2', 'mateIn3', 'mateIn4', 'mateIn5',
+    'backRankMate', 'bodenMate', 'hookMate', 'arabianMate', 
+    'dovetailMate', 'smotheredMate', 'anastasiaMate', 'doubleBishopMate',
+    
+    # Tactical themes
+    'fork', 'pin', 'skewer', 'discoveredAttack', 'xRayAttack',
+    'doubleCheck', 'deflection', 'interference', 'clearance',
+    'attraction', 'capturingDefender', 'hangingPiece', 'trappedPiece',
+    
+    # Positional themes
+    'advancedPawn', 'exposedKing', 'kingsideAttack', 'queensideAttack',
+    'attackingF2F7', 'quietMove', 'defensiveMove', 'zugzwang',
+    
+    # Endgame types
+    'pawnEndgame', 'knightEndgame', 'bishopEndgame', 'rookEndgame',
+    'queenEndgame', 'queenRookEndgame',
+    
+    # Special moves
+    'enPassant', 'castling', 'underPromotion', 'promotion',
+    
+    # Player level
+    'master', 'masterVsMaster', 'superGM',
+    
+    # Game state
+    'crushing', 'sacrifice', 'intermezzo'
+]
