@@ -1,0 +1,7 @@
+chess
+pandas
+pyarrow
+tqdm
+reportlab
+Pillow
+cairosvg

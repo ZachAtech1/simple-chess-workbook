@@ -1,34 +1,39 @@
-import os, time, requests
-import sys
+import os, time, requests, bz2, shutil
+import pandas as pd
 from pathlib import Path
 
 CSV_URL = "https://database.lichess.org/lichess_db_puzzle.csv.bz2"
 LOCAL_PATH = Path(__file__).parent / "lichess_db_puzzle.csv.bz2"
 
 def ensure_latest_csv():
-    # 1) If we don’t have a local copy, download it unconditionally.
+    # 1) If we don't have a local copy, download it unconditionally.
     if not LOCAL_PATH.exists():
         download_csv()
+        decompress_csv()
         return
 
     # 2) Otherwise, send a HEAD request to get the remote Last-Modified header.
     head = requests.head(CSV_URL, allow_redirects=True)
     remote_mod = head.headers.get("Last-Modified")
     if not remote_mod:
-        # server doesn’t provide a Last-Modified → can’t compare, skip redownload
+        # server doesn't provide a Last-Modified → can't compare, skip redownload
         return
 
-    # parse the remote timestamp into a POSIX timestamp
+    # parse the remote timestamp into a POSIX timestamp.
     remote_ts = time.mktime(
         time.strptime(remote_mod, "%a, %d %b %Y %H:%M:%S %Z")
     )
 
-    # get the local file’s modification time
+    # get the local file's modification time
     local_ts = LOCAL_PATH.stat().st_mtime
 
     # if remote is newer, redownload
     if remote_ts > local_ts:
         download_csv()
+        decompress_csv()
+        convert_to_parquet()
+    else:
+        print("Up to date")
 
 def download_csv():
     resp = requests.get(CSV_URL, stream=True)
@@ -49,7 +54,7 @@ def download_csv():
                 print(f"\rDownloading: [{bar}] {percent:5.1f}%", end="", flush=True)
     if total:
         print()  # newline after completion
-    # set the local file’s mtime to match the server’s Last-Modified
+    # set the local file's mtime to match the server's Last-Modified
     remote_mod = resp.headers.get("Last-Modified")
     if remote_mod:
         remote_ts = time.mktime(
@@ -57,5 +62,40 @@ def download_csv():
         )
         os.utime(LOCAL_PATH, (remote_ts, remote_ts))
 
-# Call this at startup:
-ensure_latest_csv()
+def decompress_csv():
+    print("\nDecompressing CSV...")
+    compressed_csv_path = LOCAL_PATH
+    decompressed_csv_path = Path(__file__).parent / "lichess_db_puzzle.csv"
+    with bz2.open(compressed_csv_path, 'rb') as f_in, open(decompressed_csv_path, 'wb') as f_out:
+        shutil.copyfileobj(f_in, f_out)
+
+def convert_to_parquet():
+    print("\nConverting to parquet...")
+    parquet_path = "lichess_db_puzzle.parquet"
+    decompressed_csv_path = Path(__file__).parent / "lichess_db_puzzle.csv"
+    fieldnames = [
+        "id","fen","moves","rating","ratingDeviation","popularity","nbPlays","themes","gameUrl","openingTags"
+    ]
+    
+    # Get total number of lines for progress bar
+    total_lines = sum(1 for _ in open(decompressed_csv_path, "rt", encoding="utf-8")) - 1  # subtract header
+    
+    # Manually parse CSV to preserve commas in openingTags
+    records = []
+    with open(decompressed_csv_path, "rt", encoding="utf-8") as f:
+        next(f)  # skip header row
+        for i, line in enumerate(f, 1):
+            parts = line.rstrip("\n").split(",", len(fieldnames) - 1)
+            if len(parts) == len(fieldnames):
+                records.append(parts)
+            
+            # Update progress bar
+            done = int(50 * i / total_lines)
+            percent = i / total_lines * 100
+            bar = "=" * done + " " * (50 - done)
+            print(f"\rConverting to parquet: [{bar}] {percent:5.1f}%", end="", flush=True)
+    
+    print()  # newline after completion
+    
+    df = pd.DataFrame(records, columns=fieldnames)
+    df.to_parquet(parquet_path)

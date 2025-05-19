@@ -1,4 +1,10 @@
-import chess, csv, random, time, bz2
+import chess , chess.svg
+import random
+import time
+import sys
+import pandas as pd
+import pyarrow.parquet as pq
+from tqdm import tqdm
 from pathlib import Path
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
@@ -6,76 +12,100 @@ from reportlab.lib.units import inch
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from update import ensure_latest_csv
-from tqdm import tqdm
-import sys
-
-
-# 0) check for latest CSV
+from PIL import Image as PILImage
+import cairosvg
+# check for latest CSV
 ensure_latest_csv()
 
-# register apple font
-apple_symbols_paths = [
-    Path("/System/Library/Fonts/Apple Symbols.ttf"),
-    Path("/System/Library/Fonts/Supplemental/Apple Symbols.ttf")
-]
-for font_path in apple_symbols_paths:
-    if font_path.exists():
-        pdfmetrics.registerFont(TTFont("AppleSymbols", str(font_path)))
-        break
-else:
-    raise FileNotFoundError(
-        "Apple Symbols font not found in system font directories."
-    )
+# Import Helvetica font
+from reportlab.pdfbase.pdfmetrics import registerFontFamily
+registerFontFamily('Helvetica', normal='Helvetica', bold='Helvetica-Bold', italic='Helvetica-Oblique', boldItalic='Helvetica-BoldOblique')
 
-# 1) read compressed csv
-csv_path = Path(__file__).parent / "lichess_db_puzzle.csv.bz2"
-stream = bz2.open(csv_path, "rt", newline="", encoding="utf-8")
+# Load parquet
+parquet_path = Path(__file__).parent / "lichess_db_puzzle.parquet"
+stream=open(parquet_path, "rb")
 
-# define the collumn names (in the lichess download page)
-fieldnames = [
-    "id","fen","moves","rating","ratingDeviation","popularity","nbPlays","themes","gameUrl","openingTags"
-]
-reader = csv.DictReader(stream, fieldnames=fieldnames)
 
-# 2) Use reservoir sampling to select user number random puzzles near k rating
-
+# Use reservoir sampling to select user number random puzzles
 k = int(input("How many puzzles do you want? "))
 while not k in range(1,100):
     if not k in range(1,100):
         print("Puzzle range is 1-100")
         k=int(input("How many puzzles do you want? "))
+    else:
         break
 
-print("Reading puzzles from database...")
+print("Begin reservoir ... ")
 reservoir = []
 total = 0
-rating_range = int(input("What rating are you looking for? "))
+
+# Ask user for input values
+rating_range = int(input("What rating are you looking for? (300 - 3000) "))
+themes = input("What themes are you looking for? (empty if none) ")
+openings = input("What openings are you looking for? (empty if none) ")
+starting_color = input("What starting color are you looking for? (b/w or empty for either) ")
 tolerance = 50
+# Ensure rating range
 while not rating_range in range(300, 3000):
     if not rating_range in range(300, 300):
         print("Please enter a rating between 300 and 3000")
-        rating_range=int(input("What rating are you looking for "))
+        rating_range=int(input("What rating are you looking for (300 - 3000) "))
     else:
         break
-# 3) search for puzzles with rating in the range
-# create a progress bar for the CSV reading process
-with tqdm(desc="Scanning puzzles", unit="puzzle", ncols=80, file=sys.stdout) as pbar:
-    # start searching for puzzles
-    for row in reader:
-        try:
-            if abs(int(row["rating"]) - rating_range) <= tolerance:
-                total += 1
-                sol = row["moves"].split()
-                item = (row["id"], row["fen"], sol)
-                if total <= k:
-                    reservoir.append(item)
-                else:
-                    r = random.randrange(total)
-                    if r < k:
-                        reservoir[r] = item
-            pbar.update(1)
-        except:
-            continue
+
+# Start timer for processing time
+start_time = time.time() 
+
+print("Loading parquet data...")
+df = pd.read_parquet(stream, engine='pyarrow') # pyarrow makes this 10x faster
+
+with tqdm(total=4, desc="Processing data", unit="step", ncols=80) as pbar: # use tqdm to track progress
+    
+    # Convert rating to numeric
+    df['rating'] = pd.to_numeric(df['rating'], errors='coerce')
+    pbar.update(1)
+    
+    # Apply filters
+    # Filter by rating
+    df = df[abs(df['rating'] - rating_range) <= tolerance]
+    
+    # Filter by themes
+    if themes:
+        theme_list = themes.split()
+        df = df[df['themes'].apply(lambda x: all(theme in x.split() for theme in theme_list))]
+    pbar.update(1)
+    
+    # Filter by openings
+    if openings:
+        # Take the opening list and replace spaces with underscores as they are used in the parquet file
+        opening_list = [opening.replace(' ', '_') for opening in openings.split(",")]
+        df = df[df['openingTags'].apply(lambda x: all(opening in x.split(',') for opening in opening_list) if isinstance(x, str) else False)]
+        print(opening_list)
+
+    # Filter by starting color
+    if starting_color:
+        df = df[~df['fen'].str.contains(f" {starting_color} ")] 
+    pbar.update(1)
+    
+    total = len(df) # count the number of puzzles
+    
+    df['moves_split'] = df['moves'].apply(lambda x: x.split()) # split the solutions into a list
+    
+    # Perform reservoir sampling
+    
+    if total <= k:
+        selected_df = df # take all if we have fewer than k puzzles
+    else:
+        selected_df = df.sample(n=k)
+    
+    # Convert to the format needed for the reservoir
+    reservoir = [(row['id'], row['fen'], row['moves_split']) 
+                for _, row in selected_df.iterrows()]
+    pbar.update(1)
+
+end_time = time.time()
+
+print(f"Time taken: {end_time - start_time:.5f} seconds")
 
 print(f"\nFound {total} puzzles matching your rating criteria")
 print(f"Selected {len(reservoir)} puzzles")
@@ -84,88 +114,94 @@ print("\nGenerating PDF...")
 # shuffle to randomize order on output
 random.shuffle(reservoir)
 selected = reservoir
-
-# 4) build PDF with max 9 puzzles per page
+# Build PDF with max 16 puzzles per page
 timestr = time.strftime("%d-%H:%M:%S")
 pdf_filename = f"Puzzle_{timestr}.pdf"
 c = canvas.Canvas(pdf_filename, pagesize=letter)
 width, height = letter
-per_page = 9
+per_page = 16
 # row offsets for each row in inches
-row_offsets = [1, 3, 5]
+row_offsets = [1, 3, 5, 7] 
 
 '''
-5) Lichess provides puzzles where the FEN represents the position before the first move.
+ Lichess provides puzzles where the FEN represents the position before the first move.
     In order to fix this we need to apply the first move to the board and update the FEN.
     This is done by using the chess library to create a board object from the FEN string,
 '''
 
 print("Starting PDF generation...")
-for idx, (pid, fen, sol) in enumerate(tqdm(selected, desc="Generating PDF", unit="puzzle", ncols=80, file=sys.stdout), start=1):
+for idx, (pid, fen, sol) in enumerate(tqdm(selected, desc="Generating PDF", unit=" puzzles", ncols=80, file=sys.stdout), start=1):
     board = chess.Board(fen)
     first_move = sol[0]
     board.push_san(first_move)
-    fen = board.fen()
-    is_black = not board.turn
+    last_move = chess.Move.from_uci(sol[-1])
+    
+    # Generate SVG for this board
+    board_size_in = 1.5
+    dpi = 300
+    board_size_px = board_size_in * dpi # define the board size in pixels
+    board_size_pt = board_size_in * inch
+    
+    custom_colors={
+        "square light": "#ffffff",
+        "square dark" : "#adadad",
+    }
+    
+    # Set orientation based on whose turn it is to move in the puzzle position
+    orientation = board.turn  # True for white to move, False for black to move
+    
+    # Split the move into source and target squares
+    move = sol[0]
+    tail = move[:2]  # First two characters
+    head = move[2:]  # Last two characters
+    arrow = [chess.svg.Arrow(chess.parse_square(tail), chess.parse_square(head), color="#000000")]
+    svg_content = chess.svg.board(
+        board=board,
+        arrows=arrow,
+        coordinates=True,
+        orientation=orientation,
+        size=board_size_px,  # adjust size to fit your layout
+        colors=custom_colors
+    )
+    
+    
+    # Write SVG to a temporary file
+    temp_svg_path = Path("temp_board.svg")
+    with open(temp_svg_path, "w") as f:
+        f.write(svg_content)
+    
+    
+    # Convert svg to png with cairosvg
+    png_filename = f"temp_board_{idx}.png"
+    cairosvg.svg2png(url=str(temp_svg_path), write_to=png_filename, output_width=board_size_px, output_height=board_size_px, dpi=dpi)
+    image_draw = Path(png_filename)
+    # Calculate position on page (using your existing layout logic)
     slot = (idx-1) % per_page
     if slot == 0 and idx != 1:
         c.showPage()
-    square = 16  # size of each cell in points
-    board_width = square * 8
-    col = slot % 3
-    row = slot // 3
-    x_origin = inch * 0.5 + col * (board_width + inch * 0.5)
-    y_origin = height - row_offsets[row] * inch * 1.2
-    c.setFont("AppleSymbols", 12)
-    c.drawString(x_origin, y_origin, f"Puzzle {idx}  (ID={pid})")
-    y = y_origin - 8
-    grid_origin_x = x_origin
-    grid_origin_y = y - board_width
+    col = slot % 4
+    row = slot // 4
+    x_origin =  .75 * inch + col * (board_size_pt * 1.2)
+    y_origin = height - row_offsets[row] * inch - 1.5 * inch
+    
+    # Draw the board image at the calculated position
+    c.drawImage(image_draw, x_origin, y_origin, width=board_size_pt, height=board_size_pt, preserveAspectRatio=True)
 
-    # draw grid lines
-    for i in range(9):
-        c.line(grid_origin_x, grid_origin_y + i * square,
-               grid_origin_x + 8 * square, grid_origin_y + i * square)
-        c.line(grid_origin_x + i * square, grid_origin_y,
-               grid_origin_x + i * square, grid_origin_y + 8 * square)
+    #Clean up temporary files
+    temp_svg_path.unlink()
+    image_draw.unlink()
 
-    piece_unicode = {
-        'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
-        'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟'
-    }
+    # Add puzzle number and ID
+    c.setFont("Helvetica", 10)
+    c.drawString(x_origin, y_origin + board_size_pt + 5, f"Puzzle {idx}  (ID={pid})")
 
-    board_ranks = fen.split()[0].split('/')
-    for rank_index, rank in enumerate(board_ranks):
-        file_index = 0
-        for symbol in rank:
-            if symbol.isdigit():
-                file_index += int(symbol)
-            else:
-                unicode_piece = piece_unicode.get(symbol, '')
-                if unicode_piece:
-                    if is_black:
-                        fx = 7 - file_index
-                        ry = rank_index
-                    else:
-                        fx = file_index
-                        ry = 7 - rank_index
-                    cell_x = grid_origin_x + fx * square + square / 2
-                    cell_y = grid_origin_y + ry * square + square / 3.5
-                    c.setFont("AppleSymbols", square * 0.9)
-                    c.drawCentredString(cell_x, cell_y, unicode_piece)
-                file_index += 1
-    side = "Black to move" if is_black else "White to move"
-    c.setFont("AppleSymbols", 10)
-    c.drawString(x_origin, grid_origin_y - 10, side)
 
-    # flush tqdm to force the progress bar to update
-    tqdm.write("", end="", file=sys.stdout)
 
-# 6) solution page
+# Solution page
 c.showPage()
-c.setFont("AppleSymbols", 12)
+c.setFont("Helvetica", 10)
 c.drawString(inch * 0.5, height - inch, "Solutions")
-c.setFont("AppleSymbols", 10)
+c.setFont("Helvetica", 8)
 y = height - inch * 1.2
 
 # For the solution lichess gives in simple text (e1d2) we use the chess library
@@ -184,8 +220,7 @@ for i, (pid, fen, sol) in enumerate(selected, start=1):
     y -= 14
     if y < inch:
         c.showPage()
-        c.setFont("AppleSymbols", 10)
+        c.setFont("Helvetica", 10)
         y = height - inch
 
 c.save()
-# thanks chatgpt for all your hardwork
