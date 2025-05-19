@@ -4,7 +4,7 @@ from pathlib import Path
 
 CSV_URL = "https://database.lichess.org/lichess_db_puzzle.csv.bz2"
 LOCAL_PATH = Path(__file__).parent / "lichess_db_puzzle.csv.bz2"
-
+VERSION = Path(__file__).parent / "version.txt"
 def ensure_latest_csv():
     # Check for internet connection
     try:
@@ -23,9 +23,6 @@ def ensure_latest_csv():
     # 2) Otherwise, send a HEAD request to get the remote Last-Modified header.
     head = requests.head(CSV_URL, allow_redirects=True)
     remote_mod = head.headers.get("Last-Modified")
-    if not remote_mod:
-        # server doesn't provide a Last-Modified → can't compare, skip redownload
-        return
 
     # parse the remote timestamp into a POSIX timestamp.
     remote_ts = time.mktime(
@@ -33,7 +30,10 @@ def ensure_latest_csv():
     )
 
     # get the local file's modification time
-    local_ts = LOCAL_PATH.stat().st_mtime
+    if VERSION.exists():
+        local_ts = VERSION.stat().st_mtime
+    else:
+        local_ts = 0
 
     # if remote is newer, redownload
     if remote_ts > local_ts:
@@ -107,3 +107,8 @@ def convert_to_parquet():
     
     df = pd.DataFrame(records, columns=fieldnames)
     df.to_parquet(parquet_path)
+    # Update version file
+    with open(VERSION, "w") as f:
+        f.write(f"{time.strftime('%Y%m%d%H%M%S')}")
+    LOCAL_PATH.unlink()
+    decompressed_csv_path.unlink()
