@@ -5,5 +5,5 @@ A Python tool that generates chess puzzles from the Lichess puzzle database. The
 ## Installation
 
 1. Clone this repository
-2. Install the required dependencies:
+2. Install the required dependencies: pip install -r requirements.txt
 
