@@ -17,6 +17,7 @@ def ensure_latest_csv():
     if not LOCAL_PATH.exists():
         download_csv()
         decompress_csv()
+        convert_to_parquet()
         return
 
     # 2) Otherwise, send a HEAD request to get the remote Last-Modified header.

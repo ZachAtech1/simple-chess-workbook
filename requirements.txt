@@ -5,3 +5,4 @@ tqdm
 reportlab
 Pillow
 cairosvg
+requests

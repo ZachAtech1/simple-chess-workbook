@@ -152,9 +152,9 @@ for idx, (pid, fen, sol) in enumerate(tqdm(selected, desc="Generating PDF", unit
     
     # Split the move into source and target squares
     move = sol[0]
-    tail = move[:2]  # First two characters
-    head = move[2:]  # Last two characters
-    arrow = [chess.svg.Arrow(chess.parse_square(tail), chess.parse_square(head), color="#000000")]
+    tail = move[0:2]  # First two characters
+    head = move[2:4]  # Last two characters
+    arrow = [chess.svg.Arrow(chess.parse_square(tail), chess.parse_square(head), color="#00000040")]
     svg_content = chess.svg.board(
         board=board,
         arrows=arrow,
@@ -224,4 +224,3 @@ for i, (pid, fen, sol) in enumerate(selected, start=1):
         y = height - inch
 
 c.save()
-# testing
