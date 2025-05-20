@@ -28,8 +28,8 @@ stream=open(parquet_path, "rb")
 
 # Use reservoir sampling to select user number random puzzles
 k = int(input("How many puzzles do you want? "))
-while not k in range(1,100):
-    if not k in range(1,100):
+while not k in range(0,101):
+    if not k in range(0,101):
         print("Puzzle range is 1-100")
         k=int(input("How many puzzles do you want? "))
     else:
