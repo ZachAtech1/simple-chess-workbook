@@ -2,7 +2,7 @@
     # Basic concepts
     'advantage', 'equality', 'opening', 'middlegame', 'endgame',
     
-    # Game length
+    # Puzzle length
     'short', 'long', 'veryLong', 'oneMove',
     
     # Mate patterns
