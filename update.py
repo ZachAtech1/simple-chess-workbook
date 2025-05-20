@@ -115,3 +115,6 @@ def convert_to_parquet():
         f.write(f"{remote_ts}")
     LOCAL_PATH.unlink()
     decompressed_csv_path.unlink()
+
+if __name__ == "__main__":
+    ensure_latest_csv()
